@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PM AXIS CORE - Enterprise Portfolio Monitoring (Cloud Edition)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Google API Setup -->
+    <script>
+        /**
+         * ⚠️ คำเตือนความปลอดภัย:
+         * หากต้องการแชร์ไฟล์นี้เป็นสาธารณะ (Public) กรุณาลบค่าใน API_KEY และ CLIENT_ID ออก
+         * เพื่อป้องกันผู้อื่นเข้าถึงโควต้าการใช้งานของคุณโดยมิชอบ
+         */
+        window.API_KEY = 'AIzaSyDS75AwMdlDrVUNSfeAZRjyHCJuA74mHwo';
+        window.CLIENT_ID = '1039103431882-rgjlpnji3gv0cnfdgc4v3kjq58ursp3k.apps.googleusercontent.com';
+
+        window.gapiLoaded = () => {
+            gapi.load('client', async () => {
+                try {
+                    await gapi.client.init({
+                        apiKey: window.API_KEY,
+                        discoveryDocs: [
+                            'https://sheets.googleapis.com/$discovery/rest?version=v4',
+                            'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'
+                        ]
+                    });
+                    window.gapiInited = true;
+                    if (window.checkAuthStatus) window.checkAuthStatus();
+                } catch (e) {
+                    console.error("Google API Init Failed:", e);
+                }
+            });
+        };
+        window.gisLoaded = () => {
+            window.tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: window.CLIENT_ID,
+                scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
+                callback: '' 
+            });
+            window.gisInited = true;
+            if (window.checkAuthStatus) window.checkAuthStatus();
+        };
+
+        window.switchTab = (id) => {
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            const s = document.getElementById(`tab-${id}`);
+            if (s) s.classList.remove('hidden');
+            const btn = document.getElementById(`btn-${id}`);
+            if (btn) btn.classList.add('active');
+            if (window.renderActiveProject) window.renderActiveProject();
+        };
+    </script>
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #1e293b; }
+        .glass-card { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border: 1px solid rgba(226, 232, 240, 0.8); }
+        .blue-gradient { background: linear-gradient(135deg, #0f172a 0%, #2563eb 100%); }
+        .emerald-gradient { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
+        .purple-gradient { background: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%); }
+        .custom-shadow { box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05); }
+        .modal { transition: opacity 0.3s ease, visibility 0.3s ease; z-index: 1000; opacity: 0; visibility: hidden; pointer-events: none; position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+        .modal.active { opacity: 1; visibility: visible; pointer-events: auto; }
+        .modal-content { transform: scale(0.95); transition: transform 0.3s ease; width: 100%; max-width: 32rem; }
+        .modal.active .modal-content { transform: scale(1); }
+        .tab-btn { color: #94a3b8; cursor: pointer; transition: all 0.2s; border-radius: 0.5rem; white-space: nowrap; }
+        .tab-btn.active { background: white; color: #2563eb; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        .rotate-icon { transition: transform 0.3s ease; }
+        .rotated { transform: rotate(180deg); }
+        .cost-input { background: #f1f5f9; border: 1px solid transparent; transition: all 0.2s; border-radius: 6px; padding: 6px 10px; text-align: right; width: 100%; font-weight: 700; font-size: 13px; color: #1e293b; }
+        .cost-input:focus { background: white; border-color: #3b82f6; outline: none; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+        #toastContainer { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); z-index: 9999; pointer-events: none; }
+        .toast { background: #1e293b; color: white; padding: 0.75rem 1.5rem; border-radius: 0.75rem; font-size: 13px; display: flex; align-items: center; gap: 0.5rem; border-left: 4px solid #ef4444; margin-top: 0.5rem; }
+        .sync-active { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .page-item { cursor: pointer; padding: 0.25rem 0.75rem; border-radius: 0.5rem; transition: all 0.2s; font-size: 12px; font-weight: 700; }
+        .page-item.active { background: #2563eb; color: white; }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <div id="toastContainer"></div>
+
+    <!-- Navigation -->
+    <nav class="bg-slate-900 text-white sticky top-0 z-50 shadow-xl">
+        <div class="max-w-[1600px] mx-auto px-6 py-3 flex justify-between items-center flex-wrap gap-4">
+            <div class="flex items-center gap-4">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center font-black text-xl shadow-lg text-white">AX</div>
+                <div>
+                    <h1 class="text-lg font-extrabold tracking-tighter uppercase italic text-white">PM AXIS <span class="text-blue-400">CORE</span></h1>
+                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Enterprise Cloud Sync</p>
+                </div>
+            </div>
+            
+            <div class="flex bg-slate-800/50 p-1 rounded-xl border border-slate-700 overflow-x-auto">
+                <button onclick="window.switchTab('portfolio')" class="tab-btn px-4 py-2 text-xs font-bold active" id="btn-portfolio">Portfolio</button>
+                <button onclick="window.switchTab('schedule')" class="tab-btn px-4 py-2 text-xs font-bold" id="btn-schedule">Schedule</button>
+                <button onclick="window.switchTab('analytics')" class="tab-btn px-4 py-2 text-xs font-bold" id="btn-analytics">Physical Analytics</button>
+                <button onclick="window.switchTab('fin-analytics')" class="tab-btn px-4 py-2 text-xs font-bold" id="btn-fin-analytics">Financial Analysis</button>
+                <button onclick="window.switchTab('finance')" class="tab-btn px-4 py-2 text-xs font-bold" id="btn-finance">Cashflow</button>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button id="authBtn" onclick="window.handleAuthClick()" class="bg-slate-700 hover:bg-slate-600 px-3 py-2 rounded-lg text-[10px] font-bold flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12.48 10.92v3.28h7.84c-.24 1.84-1.92 5.36-7.84 5.36-5.12 0-9.28-4.24-9.28-9.52s4.16-9.52 9.28-9.52c2.92 0 4.88 1.2 6 2.24l2.6-2.6C18.44 2.24 15.48 1 12 1 5.92 1 1 5.92 1 12s4.92 11 11 11c6.36 0 10.6-4.48 10.6-10.8 0-.72-.08-1.28-.16-1.84h-9.96z"/></svg>
+                    <span>Connect Google</span>
+                </button>
+                <div id="syncIndicator" class="hidden flex items-center gap-1 text-[10px] font-black text-emerald-400 uppercase">
+                    <span class="w-2 h-2 bg-emerald-400 rounded-full sync-active"></span> Cloud Synced
+                </div>
+                <select id="projectSelector" onchange="window.renderActiveProject()" class="bg-slate-800 border-none text-xs rounded-lg px-3 py-2 outline-none text-white min-w-[120px]"></select>
+                
+                <label class="cursor-pointer bg-slate-700 hover:bg-slate-600 p-2 rounded-lg transition-all" title="Import Excel/CSV">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                    <input type="file" id="excelInput" class="hidden" accept=".xlsx, .xls, .csv">
+                </label>
+
+                <button onclick="window.exportToCSV()" title="Export Database" class="bg-slate-700 hover:bg-slate-600 p-2 rounded-lg transition-all">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                </button>
+
+                <button onclick="window.openProjectModal()" class="bg-blue-600 hover:bg-blue-700 p-2 rounded-lg shadow-lg"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg></button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-[1600px] mx-auto px-6 py-8">
+        <div id="metricsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8"></div>
+
+        <!-- Section: Portfolio Summary -->
+        <section id="tab-portfolio" class="tab-content space-y-6">
+            <h2 class="text-2xl font-black text-slate-800 uppercase italic">Executive Portfolio</h2>
+            <div class="glass-card rounded-[2.5rem] overflow-hidden custom-shadow">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50 border-b">
+                        <tr class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            <th class="py-5 px-6">Project Name</th>
+                            <th class="py-5 px-6">Status</th>
+                            <th class="py-5 px-6">Progress (%)</th>
+                            <th class="py-5 px-6 text-right">Revenue (Act/Sales)</th>
+                            <th class="py-5 px-6 text-right">Expenses (Spent/Budget)</th>
+                            <th class="py-5 px-6 text-center">Variance</th>
+                            <th class="py-5 px-6 text-center">Health</th>
+                        </tr>
+                    </thead>
+                    <tbody id="portfolioTbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Section: Master Schedule -->
+        <section id="tab-schedule" class="tab-content hidden space-y-6">
+            <div class="flex justify-between items-center">
+                <h2 class="text-2xl font-black text-slate-800 uppercase italic">Master Schedule</h2>
+                <button onclick="window.openTaskModal(null, 0)" class="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-lg">Add Main Task</button>
+            </div>
+            <div class="glass-card rounded-[2.5rem] p-8 custom-shadow">
+                <div class="overflow-x-auto overflow-y-auto max-h-[600px]">
+                    <table class="w-full text-left min-w-[1100px] border-separate border-spacing-0">
+                        <thead class="bg-white sticky top-0 z-20 border-b">
+                            <tr class="text-[10px] font-black uppercase text-slate-400">
+                                <th class="pb-4 px-4" style="width: 50px;">#</th>
+                                <th class="pb-4 px-4" style="width: 350px;">Activity Name</th>
+                                <th class="pb-4 px-4 text-center" style="width: 140px;">Plan Dates</th>
+                                <th class="pb-4 px-4 text-center" style="width: 80px;">Weight</th>
+                                <th class="pb-4 px-4 text-center" style="width: 100px;">Remain</th>
+                                <th class="pb-4 px-4">Progress</th>
+                                <th class="pb-4 px-4 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scheduleTbody"></tbody>
+                    </table>
+                </div>
+                <div class="mt-4 flex justify-between items-center px-4">
+                    <div id="totalWeightBadge" class="text-xs font-black text-slate-400 uppercase">Weight Sum: 0.00%</div>
+                    <div id="schedulePagination" class="flex gap-2"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section: Physical S-Curve -->
+        <section id="tab-analytics" class="tab-content hidden space-y-8">
+            <div class="flex justify-between items-end">
+                <h2 class="text-2xl font-black text-slate-800 uppercase italic">Physical Performance</h2>
+                <button onclick="window.getAIInsights()" class="purple-gradient text-white px-6 py-2 rounded-xl text-xs font-bold shadow-lg flex items-center gap-2 hover:scale-105 transition-all">
+                    <span>✨ Get AI Strategic Insights</span>
+                </button>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2 glass-card rounded-[2.5rem] p-8">
+                    <div class="h-[400px]"><canvas id="sCurveChart"></canvas></div>
+                </div>
+                <div class="space-y-8">
+                    <div id="aiInsightsPanel" class="hidden glass-card rounded-[2rem] p-8 border-l-4 border-l-purple-500 bg-purple-50/30">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-sm font-black text-purple-900 uppercase">✨ Gemini AI Advice</h3>
+                            <button onclick="this.parentElement.parentElement.classList.add('hidden')" class="text-purple-300 hover:text-purple-600">✕</button>
+                        </div>
+                        <div id="aiInsightsText" class="text-xs leading-relaxed text-slate-700 italic"></div>
+                    </div>
+                    <div id="healthContentPhys" class="glass-card rounded-[2rem] p-8 border-l-4 border-l-blue-500 min-h-[150px]"></div>
+                    <div id="wpWeights" class="glass-card rounded-[2rem] p-8 space-y-4"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section: Financial Charts -->
+        <section id="tab-fin-analytics" class="tab-content hidden space-y-8">
+            <h2 class="text-2xl font-black text-slate-800 uppercase italic">Financial Analysis</h2>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div class="glass-card rounded-[2.5rem] p-8 custom-shadow">
+                    <h3 class="text-lg font-bold text-slate-800 mb-6">Cumulative Forecast</h3>
+                    <div class="h-[350px]"><canvas id="financialSCurveChart"></canvas></div>
+                </div>
+                <div class="glass-card rounded-[2.5rem] p-8 custom-shadow">
+                    <h3 class="text-lg font-bold text-slate-800 mb-6">Monthly Performance Anatomy</h3>
+                    <div class="h-[350px]"><canvas id="monthlyFinancialBarChart"></canvas></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section: Cash Flow Management -->
+        <section id="tab-finance" class="tab-content hidden space-y-8">
+            <h2 class="text-2xl font-black text-slate-800 uppercase italic">Cash Flow Tracking</h2>
+            <div id="financeKpiCards" class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"></div>
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                <div class="lg:col-span-3">
+                    <div id="projectProfileCard" class="glass-card rounded-[2.5rem] p-8 sticky top-24"></div>
+                </div>
+                <div class="lg:col-span-9 space-y-8">
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                        <div class="glass-card p-8 rounded-[2.5rem]">
+                            <div class="flex justify-between items-center mb-6">
+                                <h3 class="text-lg font-bold">Revenue Milestones</h3>
+                                <button onclick="window.openRevenueModal()" class="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs font-bold uppercase shadow-sm">Plan</button>
+                            </div>
+                            <div class="overflow-y-auto max-h-[300px]">
+                                <table class="w-full text-xs text-left"><tbody id="revenueMilestoneTbody"></tbody></table>
+                            </div>
+                        </div>
+                        <div class="glass-card p-8 rounded-[2.5rem]">
+                            <h3 class="text-lg font-bold mb-6 text-emerald-600 italic">Financial Ledger</h3>
+                            <div class="overflow-y-auto max-h-[300px]">
+                                <table class="w-full text-xs text-left"><tbody id="revenueLedgerTbody"></tbody></table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="glass-card p-8 rounded-[2.5rem]">
+                        <h3 class="text-lg font-bold mb-6">Monthly Cost Control</h3>
+                        <div class="overflow-x-auto overflow-y-auto max-h-[400px]">
+                            <table class="w-full text-xs border-separate border-spacing-0">
+                                <thead class="bg-white sticky top-0 border-b">
+                                    <tr class="text-[10px] font-black text-slate-400 uppercase">
+                                        <th class="pb-3 px-4">Period</th><th class="pb-3 px-4 text-right">Planned</th><th class="pb-3 px-4 text-right">Actual</th><th class="pb-3 px-4 text-right">Var</th><th class="pb-3 px-4"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="monthlyCostTbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Modals (Simplified for context) -->
+    <div id="projectModal" class="modal bg-slate-900/40 backdrop-blur-sm p-4">
+        <div class="modal-content glass-card rounded-[2.5rem] shadow-2xl overflow-hidden">
+            <div class="blue-gradient p-8 text-white flex justify-between items-center"><h3 class="text-2xl font-black italic">Initialize Project</h3><button onclick="window.closeProjectModal()" class="text-white/50 hover:text-white">✕</button></div>
+            <form id="newProjectForm" class="p-8 space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <input type="text" name="ID" placeholder="PJ-ID" required class="bg-slate-50 border p-3 rounded-xl text-sm">
+                    <input type="text" name="Name" placeholder="Project Name" required class="bg-slate-50 border p-3 rounded-xl text-sm">
+                    <input type="number" name="SalesValue" placeholder="Sales (Revenue)" required class="bg-slate-50 border p-3 rounded-xl text-sm">
+                    <input type="number" name="CostBudget" placeholder="Cost (Budget)" required class="bg-slate-50 border p-3 rounded-xl text-sm">
+                    <input type="date" name="Start" id="projStart" required class="bg-slate-50 border p-3 rounded-xl text-sm">
+                    <input type="date" name="End" id="projEnd" required class="bg-slate-50 border p-3 rounded-xl text-sm">
+                </div>
+                <button type="submit" class="w-full blue-gradient text-white py-4 rounded-xl font-black shadow-lg">Save Project</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="taskModal" class="modal bg-slate-900/40 backdrop-blur-sm p-4">
+        <div class="modal-content glass-card rounded-[2.5rem] shadow-2xl overflow-hidden">
+            <div class="blue-gradient p-8 text-white flex justify-between items-center"><h3 class="text-xl font-black">Manage Activity</h3><button onclick="window.closeTaskModal()" class="text-white/50 hover:text-white">✕</button></div>
+            <form id="taskForm" class="p-8 space-y-4">
+                <input type="hidden" name="parentId"><input type="hidden" name="level">
+                <input type="text" name="taskName" id="taskNameInput" placeholder="Title" required class="w-full border p-3 rounded-xl text-sm">
+                <div class="grid grid-cols-2 gap-4"><input type="date" name="start" required class="border p-3 rounded-xl text-sm"><input type="date" name="end" required class="border p-3 rounded-xl text-sm"></div>
+                <input type="number" name="weight" step="0.01" placeholder="Weight %" required class="w-full border p-3 rounded-xl text-sm font-bold">
+                <div class="flex gap-3 pt-4"><button type="button" onclick="window.closeTaskModal()" class="flex-1 font-bold">Cancel</button><button type="submit" class="flex-[2] blue-gradient text-white py-3 rounded-xl font-black shadow-lg">Save</button></div>
+            </form>
+        </div>
+    </div>
+
+    <div id="revenueModal" class="modal bg-slate-900/40 backdrop-blur-sm p-4">
+        <div class="modal-content !max-w-4xl glass-card rounded-[2.5rem] shadow-2xl overflow-hidden">
+            <div class="blue-gradient p-8 text-white flex justify-between items-center"><h3 class="text-xl font-black uppercase italic">Milestone Setup</h3><button onclick="window.addRevenueRow()" class="bg-white/20 px-3 py-1 rounded text-xs font-bold">+ Add Row</button></div>
+            <div class="p-8 max-h-[60vh] overflow-y-auto"><table class="w-full text-sm"><thead><tr class="text-[10px] font-black text-slate-400"><th>งวด</th><th>% เก็บ</th><th>รายละเอียด</th><th>Due Date</th><th></th></tr></thead><tbody id="revenueFormBody"></tbody></table></div>
+            <div class="p-8 border-t flex justify-between items-center"><div class="text-sm font-bold text-slate-400">Total: <span id="revenueTotalPct">0.00</span>%</div><div class="flex gap-2"><button onclick="window.closeRevenueModal()" class="px-6 font-bold text-slate-400 text-sm">Cancel</button><button onclick="window.saveRevenueMilestones()" class="px-8 py-2 blue-gradient text-white rounded-xl font-black shadow-lg">Sync</button></div></div>
+        </div>
+    </div>
+
+    <div id="ledgerModal" class="modal bg-slate-900/40 backdrop-blur-sm p-4">
+        <div class="modal-content glass-card rounded-[2.5rem] shadow-2xl overflow-hidden">
+            <div class="blue-gradient p-8 text-white flex justify-between items-center"><h3 class="text-xl font-black uppercase italic">Ledger Entry</h3><button onclick="window.closeLedgerModal()" class="text-white/50 hover:text-white">✕</button></div>
+            <form id="ledgerForm" class="p-8 space-y-4">
+                <input type="hidden" name="installment" id="lockedInstallment">
+                <div class="grid grid-cols-2 gap-4"><input type="date" name="date" required class="bg-slate-50 border p-3 rounded-xl text-sm"><select name="selection" required class="bg-slate-50 border p-3 rounded-xl text-sm"></select></div>
+                <input type="number" name="amount" id="autoAmount" required class="w-full bg-slate-50 border p-3 rounded-xl text-sm font-black" placeholder="Amount (THB)">
+                <button type="submit" class="w-full blue-gradient text-white py-4 rounded-xl font-black">Record Record</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="statusUpdateModal" class="modal bg-slate-900/40 backdrop-blur-sm p-4">
+        <div class="modal-content glass-card rounded-[2.5rem] shadow-2xl overflow-hidden">
+            <div class="emerald-gradient p-8 text-white flex justify-between items-center"><h3 class="text-xl font-black uppercase italic text-sm">Progress Update</h3><button onclick="window.closeStatusModal()" class="text-white/50 hover:text-white">✕</button></div>
+            <form id="statusForm" class="p-8 space-y-4">
+                <input type="hidden" name="taskId"><input type="date" name="actualFinish" class="w-full border p-3 rounded-xl text-sm"><input type="number" name="progress" min="0" max="100" required class="w-full border p-3 rounded-xl text-sm font-bold"><textarea name="remark" rows="4" class="w-full border p-3 rounded-xl text-sm" placeholder="Site remark..."></textarea>
+                <button type="submit" class="w-full emerald-gradient text-white py-3 rounded-xl font-black shadow-lg text-sm">Submit Update</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // --- System Logic Hub ---
+        let AppData = { projects: [], schedule: [], revenueMilestones: [], revenueLedger: [], monthlyCosts: [], activeProjectID: null, lastCalculatedWeight: 0, scheduleCurrentPage: 1, scheduleItemsPerPage: 10 };
+        let SPREADSHEET_ID = null;
+        let sCurveInstance = null, financeSCurveInstance = null, monthlyBarInstance = null;
+        const monthsNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+        // Global Helper Functions
+        window.convertExcelDate = (v) => { 
+            if (!v || v === "-") return ""; 
+            let n = Number(v); 
+            if (!isNaN(n) && n > 10000) { 
+                const d = new Date(Math.round((n - 25569) * 864e5)); 
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; 
+            } 
+            return String(v); 
+        };
+        window.formatDateUI = (v) => { const ds = window.convertExcelDate(v); if (!ds) return "-"; const d = new Date(ds); if (isNaN(d.getTime())) return ds; return `${String(d.getDate()).padStart(2, '0')}-${monthsNames[d.getMonth()]}-${d.getFullYear().toString().substr(-2)}`; };
+        window.formatCurrency = (n) => { if (n === undefined || n === null) return "฿0.0M"; const f = (Math.abs(n)/1e6).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }); return (n < 0 ? "-" : "") + f + " M"; };
+        window.parseNumber = (s) => { if (typeof s === 'number') return s; return parseFloat(String(s).replace(/,/g, '').replace(/฿/g, '').replace(/M/g, '').trim()) || 0; };
+        window.showMessage = (msg, type = 'error') => { const container = document.getElementById('toastContainer'); const t = document.createElement('div'); t.className = `toast ${type === 'success' ? 'border-emerald-500' : 'border-red-500'}`; t.innerHTML = `<span>${msg}</span>`; container.appendChild(t); setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 3000); };
+
+        function getTaskMetrics(id, ts) { const t = ts.find(x => x.id == id); if (!t) return { weight: 0, progress: 0 }; const cs = ts.filter(x => x.parentId == id); if (cs.length === 0) return { weight: t.weight, progress: t.progress }; const tw = cs.reduce((s, c) => s + getTaskMetrics(c.id, ts).weight, 0); let ap = 0; if (tw > 0) ap = cs.reduce((s, c) => s + (getTaskMetrics(c.id, ts).progress * (getTaskMetrics(c.id, ts).weight / tw)), 0); return { weight: tw, progress: ap }; }
+        
+        window.calculateRemainDays = (t, m) => { 
+            if (!t.end) return { text: '-', color: 'text-slate-400' };
+            const planEndStr = window.convertExcelDate(t.end);
+            const pe = new Date(planEndStr);
+            if (isNaN(pe.getTime())) return { text: '-', color: 'text-slate-400' };
+            const td = new Date(); td.setHours(0,0,0,0); pe.setHours(0,0,0,0);
+            if (m.progress < 100) {
+                const d = Math.floor((pe - td) / 864e5);
+                return { text: `${d >= 0 ? '+' : ''}${d} วัน`, color: d >= 0 ? 'text-blue-600' : 'text-red-600' };
+            } else {
+                if (!t.actualFinish) return { text: 'เสร็จสิ้น', color: 'text-emerald-600 font-bold' };
+                const ae = new Date(window.convertExcelDate(t.actualFinish));
+                const d = Math.floor((pe - ae) / 864e5);
+                return { text: d >= 0 ? `ก่อนแผน ${d} วัน` : `ล่าช้า ${Math.abs(d)} วัน`, color: d >= 0 ? 'text-emerald-600' : 'text-red-600' };
+            }
+        };
+
+        window.calculatePhysicalPlan = (p, ts) => { if (!p.Start || !p.End) return []; const sd = new Date(window.convertExcelDate(p.Start)), ed = new Date(window.convertExcelDate(p.End)); let cur = new Date(sd.getFullYear(), sd.getMonth(), 1), result = [], cum = 0; const leafs = ts.filter(t => ts.filter(x => x.parentId == t.id).length === 0); while (cur <= ed) { let mProg = 0; const mE = new Date(cur.getFullYear(), cur.getMonth() + 1, 0); leafs.forEach(t => { if (!t.start || !t.end) return; const tS = new Date(window.convertExcelDate(t.start)), tE = new Date(window.convertExcelDate(t.end)); if (tE < cur || tS > mE) return; const overlapS = new Date(Math.max(tS, cur)), overlapE = new Date(Math.min(tE, mE)); const days = Math.ceil((overlapE - overlapS) / 864e5) + 1, totalDays = Math.ceil((tE - tS) / 864e5) + 1; mProg += (days / totalDays) * t.weight; }); cum += mProg; result.push({ month: `${monthsNames[cur.getMonth()]}-${cur.getFullYear().toString().substr(-2)}`, val: Math.min(100, cum) }); cur.setMonth(cur.getMonth() + 1); } return result; };
+        window.calculatePhysicalActual = (p, ts) => { if (!p.Start || !p.End) return []; const sd = new Date(window.convertExcelDate(p.Start)), ed = new Date(window.convertExcelDate(p.End)); let cur = new Date(sd.getFullYear(), sd.getMonth(), 1), result = [], cum = 0; const leafs = ts.filter(t => ts.filter(x => x.parentId == t.id).length === 0); while (cur <= ed) { let mProg = 0; const mE = new Date(cur.getFullYear(), cur.getMonth() + 1, 0); leafs.forEach(t => { if (!t.start || !t.end) return; const tS = new Date(window.convertExcelDate(t.start)), tE = new Date(window.convertExcelDate(t.end)); if (tE < cur || tS > mE) return; const overlapS = new Date(Math.max(tS, cur)), overlapE = new Date(Math.min(tE, mE)); const days = Math.ceil((overlapE - overlapS) / 864e5) + 1, totalDays = Math.ceil((tE - tS) / 864e5) + 1; mProg += (days / totalDays) * (t.weight * (t.progress/100)); }); cum += mProg; result.push({ month: `${monthsNames[cur.getMonth()]}-${cur.getFullYear().toString().substr(-2)}`, val: Math.min(100, cum) }); cur.setMonth(cur.getMonth() + 1); } return result; };
+
+        // --- EXPORT DATABASE (FIXED FOR THAI CHARACTERS) ---
+        window.exportToCSV = () => {
+            if (AppData.schedule.length === 0) return window.showMessage("ไม่มีข้อมูลสำหรับส่งออก");
+            const BOM = '\uFEFF';
+            const head = "ProjectID,Task Name,Start,End,Weight(%),Progress(%),Remark\n";
+            const rows = AppData.schedule.map(t => {
+                const name = `"${(t.taskName || '').replace(/"/g, '""')}"`;
+                const remark = `"${(t.remark || '').replace(/"/g, '""')}"`;
+                return `${t.ProjectID},${name},${t.start},${t.end},${t.weight},${t.progress},${remark}`;
+            }).join("\n");
+            const b = new Blob([BOM + head + rows], { type: 'text/csv;charset=utf-8;' });
+            const u = window.URL.createObjectURL(b);
+            const a = document.createElement('a'); a.href = u; a.download = `PM_DATABASE_EXPORT_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+            window.showMessage("ส่งออกฐานข้อมูลสำเร็จ", "success");
+        };
+
+        // --- Cloud Sync Logic ---
+        window.checkAuthStatus = () => { if (window.gapiInited && window.gisInited && gapi.client.getToken()) { document.getElementById('authBtn')?.classList.add('hidden'); document.getElementById('syncIndicator')?.classList.remove('hidden'); findOrCreateSpreadsheet(); } };
+        window.handleAuthClick = () => { window.tokenClient.callback = async (resp) => { if (resp.error) throw (resp); window.checkAuthStatus(); }; window.tokenClient.requestAccessToken({prompt: gapi.client.getToken() === null ? 'consent' : ''}); };
+
+        async function findOrCreateSpreadsheet() {
+            try {
+                const response = await gapi.client.drive.files.list({ q: "name = 'PM_AXIS_DB' and mimeType = 'application/vnd.google-apps.spreadsheet'", fields: "files(id, name)" });
+                if (response.result.files.length > 0) { SPREADSHEET_ID = response.result.files[0].id; await loadAllData(); } 
+                else { await createNewDatabase(); }
+            } catch (err) { window.showMessage("Cloud Error"); }
+        }
+
+        async function createNewDatabase() {
+            const ss = await gapi.client.sheets.spreadsheets.create({ resource: { properties: { title: 'PM_AXIS_DB' }, sheets: [{ properties: { title: 'Projects' } }, { properties: { title: 'Schedule' } }, { properties: { title: 'Milestones' } }, { properties: { title: 'Ledger' } }, { properties: { title: 'Costs' } }] } });
+            SPREADSHEET_ID = ss.result.spreadsheetId;
+            const data = [{ range: "Projects!A1", values: [["ID","Name","SalesValue","CostBudget","Start","End"]] }, { range: "Schedule!A1", values: [["ProjectID","id","parentId","level","taskName","start","end","weight","progress","remark","actualFinish"]] }, { range: "Milestones!A1", values: [["ProjectID","installment","percent","detail","dueDate"]] }, { range: "Ledger!A1", values: [["ProjectID","date","installment","selection","amount"]] }, { range: "Costs!A1", values: [["ProjectID","month","plan","actual"]] }];
+            await gapi.client.sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SPREADSHEET_ID, resource: { data, valueInputOption: 'RAW' } });
+            window.renderActiveProject();
+        }
+
+        async function loadAllData() {
+            const res = await gapi.client.sheets.spreadsheets.values.batchGet({ spreadsheetId: SPREADSHEET_ID, ranges: ['Projects!A2:F', 'Schedule!A2:K', 'Milestones!A2:F', 'Ledger!A2:E', 'Costs!A2:D'] });
+            const v = res.result.valueRanges;
+            AppData.projects = (v[0].values || []).map(r => ({ID:r[0], Name:r[1], SalesValue:Number(r[2]), CostBudget:Number(r[3]), Start:r[4], End:r[5]}));
+            AppData.schedule = (v[1].values || []).map(r => ({ProjectID:r[0], id:r[1], parentId:r[2]||null, level:Number(r[3]), taskName:r[4], start:r[5], end:r[6], weight:Number(r[7]), progress:Number(r[8]), remark:r[9]||'', actualFinish:r[10]||''}));
+            AppData.revenueMilestones = (v[2].values || []).map(r => ({ProjectID:r[0], installment:Number(r[1]), percent:Number(r[2]), detail:r[3], dueDate:r[4], status:r[5]}));
+            AppData.revenueLedger = (v[3].values || []).map(r => ({ProjectID:r[0], date:r[1], installment:Number(r[2]), selection:r[3], amount:Number(r[4])}));
+            AppData.monthlyCosts = (v[4].values || []).map(r => ({ProjectID:r[0], month:r[1], plan:Number(r[2]), actual:Number(r[3])}));
+            window.initDashboard();
+        }
+
+        async function syncToCloud() {
+            if (!SPREADSHEET_ID) return;
+            const data = [{ range: "Projects!A2:F100", values: AppData.projects.map(p => [p.ID, p.Name, p.SalesValue, p.CostBudget, p.Start, p.End]) }, { range: "Schedule!A2:K1000", values: AppData.schedule.map(t => [t.ProjectID, t.id, t.parentId, t.level, t.taskName, t.start, t.end, t.weight, t.progress, t.remark, t.actualFinish]) }, { range: "Milestones!A2:E500", values: AppData.revenueMilestones.map(m => [m.ProjectID, m.installment, m.percent, m.detail, m.dueDate]) }, { range: "Ledger!A2:E1000", values: AppData.revenueLedger.map(l => [l.ProjectID, l.date, l.installment, l.selection, l.amount]) }, { range: "Costs!A2:D500", values: AppData.monthlyCosts.map(c => [c.ProjectID, c.month, c.plan, c.actual]) }];
+            await gapi.client.sheets.spreadsheets.values.batchClear({ spreadsheetId: SPREADSHEET_ID, ranges: ['Projects!A2:F100', 'Schedule!A2:K1000', 'Milestones!A2:E500', 'Ledger!A2:E1000', 'Costs!A2:D500'] });
+            await gapi.client.sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SPREADSHEET_ID, resource: { data, valueInputOption: 'RAW' } });
+            window.showMessage("Synced", "success");
+        }
+
+        // --- GEMINI AI INTEGRATION ---
+        window.getAIInsights = async () => {
+            const p = AppData.projects.find(x => x.ID === AppData.activeProjectID);
+            if (!p) return;
+            const textEl = document.getElementById('aiInsightsText');
+            document.getElementById('aiInsightsPanel').classList.remove('hidden');
+            textEl.innerHTML = "วิเคราะห์ข้อมูลเชิงกลยุทธ์...";
+            const prompt = `Analyze project ${p.Name} with sales value ${p.SalesValue} and provide 3 focus points for management. Return in Thai.`;
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=`;
+                const response = await fetch(url, { method: 'POST', body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], systemInstruction: { parts: [{ text: "Senior PM" }] } }) });
+                const res = await response.json();
+                textEl.innerHTML = res.candidates?.[0]?.content?.parts?.[0]?.text || "AI Error";
+            } catch (e) { textEl.innerHTML = "AI Connection Error"; }
+        };
+
+        // --- UI Rendering Handlers ---
+        window.openProjectModal = () => document.getElementById('projectModal').classList.add('active');
+        window.closeProjectModal = () => document.getElementById('projectModal').classList.remove('active');
+        window.openTaskModal = (pid, lvl) => { const f = document.getElementById('taskForm'); f.parentId.value = pid || ''; f.level.value = lvl; document.getElementById('taskModal').classList.add('active'); };
+        window.closeTaskModal = () => document.getElementById('taskModal').classList.remove('active');
+        window.openRevenueModal = () => { if(!AppData.activeProjectID) return; document.getElementById('revenueModal').classList.add('active'); window.renderRevenueForm(); };
+        window.closeRevenueModal = () => document.getElementById('revenueModal').classList.remove('active');
+        window.openLedgerModal = (i) => {
+            if(!AppData.activeProjectID) return; const p = AppData.projects.find(x => String(x.ID) === String(AppData.activeProjectID)); const m = AppData.revenueMilestones.find(x => x.ProjectID === AppData.activeProjectID && x.installment === i);
+            const ex = AppData.revenueLedger.filter(l => l.ProjectID === AppData.activeProjectID && l.installment === i).map(l => l.selection);
+            const ts = ["1. Invoice plan", "2. Invoice Actual", "3. Payment plan", "4. Payment actual"].filter(t => !ex.includes(t));
+            const selectEl = document.querySelector('#ledgerForm select[name="selection"]');
+            if(selectEl) selectEl.innerHTML = ts.map(t => `<option value="${t}">${t}</option>`).join('');
+            document.getElementById('lockedInstallment').value = i;
+            document.getElementById('autoAmount').value = (p.SalesValue * (m.percent / 100)).toFixed(2);
+            document.getElementById('ledgerModal').classList.add('active');
+        };
+        window.closeLedgerModal = () => document.getElementById('ledgerModal').classList.remove('active');
+        window.openStatusModal = (id) => { const t = AppData.schedule.find(x => String(x.id) === String(id)); if (!t) return; const f = document.getElementById('statusForm'); f.taskId.value = t.id; f.progress.value = t.progress || 0; document.getElementById('statusUpdateModal').classList.add('active'); };
+        window.closeStatusModal = () => document.getElementById('statusUpdateModal').classList.remove('active');
+
+        window.initDashboard = function(tid = null) {
+            const s = document.getElementById('projectSelector');
+            if (s) { s.innerHTML = AppData.projects.map(p => `<option value="${p.ID}">${p.ID}: ${p.Name}</option>`).join(''); if (tid) s.value = tid; else if (AppData.projects.length > 0) s.value = AppData.projects[0].ID; }
+            window.renderActiveProject();
+        };
+
+        window.renderActiveProject = function() {
+            const pid = document.getElementById('projectSelector').value; if(!pid) return; AppData.activeProjectID = pid;
+            const p = AppData.projects.find(x => String(x.ID) === String(pid)); if (!p) return;
+            const ts = AppData.schedule.filter(t => String(t.ProjectID) === String(pid));
+            const rts = ts.filter(t => !t.parentId && t.level === 0);
+            const tw = rts.reduce((s, t) => s + getTaskMetrics(t.id, ts).weight, 0); AppData.lastCalculatedWeight = tw;
+            let ap = tw > 0 ? rts.reduce((s, t) => s + (getTaskMetrics(t.id, ts).progress * (getTaskMetrics(t.id, ts).weight / tw)), 0) : 0;
+            const revRec = AppData.revenueLedger.filter(l => l.ProjectID === pid && l.selection === '4. Payment actual').reduce((s,l) => s + l.amount, 0);
+            const totalActCost = AppData.monthlyCosts.filter(c => c.ProjectID === pid).reduce((s,c) => s + c.actual, 0);
+
+            renderPortfolioSummary(ap, revRec, totalActCost);
+            renderScheduleUI(ts, tw);
+            renderChartsInternal(p, ts, ap, totalActCost);
+            renderCashFlowDetails(p, pid, ap, revRec, totalActCost);
+            renderFinancialAnalyticsInternal(p, pid);
+        };
+
+        function renderPortfolioSummary(ap, revRec, totalActCost) {
+            const pb = document.getElementById('portfolioTbody'); if(!pb) return;
+            pb.innerHTML = AppData.projects.map(pj => {
+                const pjRevAct = AppData.revenueLedger.filter(l => l.ProjectID === pj.ID && l.selection === '4. Payment actual').reduce((s,l) => s + l.amount, 0);
+                const pjExpAct = AppData.monthlyCosts.filter(c => c.ProjectID === pj.ID).reduce((s,c) => s + c.actual, 0);
+                return `<tr class="border-b hover:bg-slate-50 transition-all cursor-pointer" onclick="document.getElementById('projectSelector').value='${pj.ID}'; window.renderActiveProject(); window.switchTab('portfolio');">
+                    <td class="py-5 px-6 font-bold text-slate-800">${pj.Name}</td>
+                    <td><span class="px-2 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-black uppercase">Live</span></td>
+                    <td><div class="w-16 h-1.5 bg-slate-100 rounded-full mb-1"><div class="bg-emerald-500 h-full" style="width: ${ap}%"></div></div><span class="text-[9px] font-bold">${ap.toFixed(1)}%</span></td>
+                    <td class="py-5 px-6 text-right font-black text-emerald-600">${window.formatCurrency(pjRevAct)} / ${window.formatCurrency(pj.SalesValue)}</td>
+                    <td class="py-5 px-6 text-right font-black text-orange-600">${window.formatCurrency(pjExpAct)} / ${window.formatCurrency(pj.CostBudget)}</td>
+                    <td class="py-5 px-6 text-center text-xs font-black text-red-600">-2.5%</td>
+                    <td class="py-5 px-6 text-center"><span class="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-black uppercase">Healthy</span></td>
+                </tr>`;
+            }).join('');
+            const p = AppData.projects.find(x => x.ID === AppData.activeProjectID) || AppData.projects[0];
+            const items = [{ label: 'Sales Contract', val: window.formatCurrency(AppData.projects.reduce((s,p)=>s+p.SalesValue,0)), color: 'blue-gradient' }, { label: 'Physical %', val: `${ap.toFixed(2)}%`, color: 'bg-emerald-500' }, { label: 'Projects', val: AppData.projects.length, color: 'bg-slate-800' }, { label: 'Status', val: 'HEALTHY', color: 'orange-gradient' }];
+            document.getElementById('metricsGrid').innerHTML = items.map(i => `<div class="glass-card p-6 rounded-[2rem] shadow-sm"><p class="text-[10px] font-black text-slate-400 mb-1 uppercase">${i.label}</p><h3 class="text-xl font-extrabold text-slate-800">${i.val}</h3><div class="w-full h-1 mt-4 bg-slate-100 rounded-full overflow-hidden"><div class="${i.color} h-full" style="width: 70%"></div></div></div>`).join('');
+        }
+
+        function renderScheduleUI(ts, tw) {
+            const b = document.getElementById('scheduleTbody'); if(!b) return;
+            const paginationEl = document.getElementById('schedulePagination');
+            const allTasks = []; const flat = (pid = null, pre = '') => { ts.filter(t => t.parentId == pid).forEach((c, i) => { const cid = pre ? `${pre}.${i+1}` : `${i+1}`; allTasks.push({ ...c, displayId: cid }); flat(c.id, cid); }); }; flat();
+            const total = allTasks.length; const totalPages = Math.ceil(total / AppData.scheduleItemsPerPage);
+            const startIdx = (AppData.scheduleCurrentPage - 1) * AppData.scheduleItemsPerPage;
+            const pageTasks = allTasks.slice(startIdx, startIdx + AppData.scheduleItemsPerPage);
+            let h = '';
+            pageTasks.forEach(c => {
+                const metrics = getTaskMetrics(c.id, ts), leaf = ts.filter(x => x.parentId == c.id).length === 0, rem = window.calculateRemainDays(c, metrics);
+                h += `<tr id="row-${c.id}" class="task-row border-b hover:bg-slate-50/50 ${c.level === 0 ? 'bg-blue-50/5 font-bold' : ''}"><td class="py-4 px-4 text-[10px] font-bold text-slate-400">${c.displayId}</td><td class="py-4 px-4 indent-${c.level}"><div class="flex items-start gap-2">${!leaf ? `<button onclick="window.toggleRow('${c.id}')" class="rotate-icon rotated mt-1"><svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" /></svg></button>` : '<span class="w-3"></span>'}<div class="flex-1 text-sm">${c.taskName}</div></div></td><td class="py-4 px-4 text-center font-bold text-slate-500 text-[10px]">${window.formatDateUI(c.start)}<br>| <br>${window.formatDateUI(c.end)}</td><td class="py-4 px-4 text-center text-xs font-black text-slate-600">${metrics.weight.toFixed(2)}%</td><td class="py-4 px-4 text-center text-[10px] font-bold ${rem.color}">${rem.text}</td><td class="py-4 px-4"><div class="flex items-center gap-2"><div class="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div class="${metrics.progress >= 100 ? 'bg-emerald-500' : 'bg-blue-600'} h-full" style="width: ${metrics.progress}%"></div></div><span class="text-[10px] font-bold w-10 text-slate-600">${metrics.progress.toFixed(0)}%</span></div></td><td class="py-4 px-4 text-right"><div class="flex justify-end gap-1">${leaf ? `<button onclick="window.openStatusModal('${c.id}')" class="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg shadow-sm hover:bg-emerald-600 transition-all"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg></button>` : ''}<button onclick="window.deleteTask('${c.id}')" class="p-1.5 text-red-300 hover:text-red-500 transition-all">✕</button></div></td></tr>`;
+            });
+            b.innerHTML = h;
+            let pTags = ''; for(let i=1; i<=totalPages; i++) { pTags += `<span onclick="window.changeSchedulePage(${i})" class="page-item ${i === AppData.scheduleCurrentPage ? 'active' : ''}">${i}</span>`; }
+            if(paginationEl) paginationEl.innerHTML = pTags;
+            const badge = document.getElementById('totalWeightBadge'); if(badge) badge.innerText = `Weight Guard: ${tw.toFixed(2)}%`;
+        }
+
+        function renderChartsInternal(p, ts, ap, actCost) {
+            const planD = window.calculatePhysicalPlan(p, ts), actD = window.calculatePhysicalActual(p, ts);
+            const ctxP = document.getElementById('sCurveChart').getContext('2d'); if (sCurveInstance) sCurveInstance.destroy(); sCurveInstance = new Chart(ctxP, { type: 'line', data: { labels: planD.map(d => d.month), datasets: [{ label: 'Plan (%)', data: planD.map(d => d.val), borderColor: '#94a3b8', borderDash: [5,5], fill: false, tension: 0.3 }, { label: 'Actual (%)', data: actD.map(d => d.val), borderColor: '#2563eb', borderWidth: 4, fill: true, backgroundColor: 'rgba(37,99,235,0.05)' }] }, options: { responsive: true, maintainAspectRatio: false } });
+            document.getElementById('healthContentPhys').innerHTML = `<div class="p-6 bg-slate-50 rounded-2xl border"><h4 class="font-black text-xl mb-2 text-emerald-600 uppercase">Strategic Status</h4><ul class="space-y-2 text-[11px] font-bold text-slate-500 italic"><li>• Progress: ${ap.toFixed(2)}%</li><li>• Sync: GOOGLE LIVE</li><li>• Spend: ${window.formatCurrency(actCost)}</li></ul></div>`;
+        }
+
+        function renderCashFlowDetails(p, pid, ap, revRec, actCost) {
+            const remRev = p.SalesValue - revRec;
+            document.getElementById('financeKpiCards').innerHTML = `
+                <div class="glass-card p-6 rounded-[2rem] shadow-sm"><p class="text-[10px] font-black text-slate-400 mb-1 uppercase">CONTRACT VALUE</p><h3 class="text-xl font-extrabold text-slate-800">${window.formatCurrency(p.SalesValue)}</h3><div class="w-full h-1 mt-4 bg-slate-100 rounded-full overflow-hidden"><div class="blue-gradient h-full" style="width: 100%"></div></div></div>
+                <div class="glass-card p-6 rounded-[2rem] shadow-sm"><p class="text-[10px] font-black text-slate-400 mb-1 uppercase">ACTUAL CASH IN</p><h3 class="text-xl font-extrabold text-emerald-600">${window.formatCurrency(revRec)}</h3><div class="w-full h-1 mt-4 bg-slate-100 rounded-full overflow-hidden"><div class="bg-emerald-500 h-full" style="width: ${(revRec/p.SalesValue*100).toFixed(0)}%"></div></div></div>
+                <div class="glass-card p-6 rounded-[2rem] shadow-sm"><p class="text-[10px] font-black text-slate-400 mb-1 uppercase">OUTSTANDING</p><h3 class="text-xl font-extrabold text-slate-800">${window.formatCurrency(remRev)}</h3><div class="w-full h-1 mt-4 bg-slate-100 rounded-full overflow-hidden"><div class="bg-blue-600 h-full" style="width: ${(remRev/p.SalesValue*100).toFixed(0)}%"></div></div></div>`;
+            
+            document.getElementById('projectProfileCard').innerHTML = `<h3 class="text-xl font-black mb-8 border-b pb-4 uppercase italic text-sm">Project Insight</h3><div class="space-y-6 text-sm mb-10"><div class="flex justify-between"><span>Budget</span><span class="text-blue-700 font-black">${window.formatCurrency(p.CostBudget)}</span></div><div class="flex justify-between"><span>Spent</span><span class="text-orange-600 font-black">${window.formatCurrency(actCost)}</span></div><div class="pt-4 border-t flex justify-between"><span>Start Date</span><span class="font-black text-xs">${p.Start}</span></div></div>`;
+            renderFinanceTablesInternal(pid, p);
+        }
+
+        function renderFinanceTablesInternal(pid, proj) {
+            const ms = AppData.revenueMilestones.filter(m => m.ProjectID === pid).sort((a,b) => a.installment - b.installment);
+            document.getElementById('revenueMilestoneTbody').innerHTML = ms.map(m => `<tr class="border-b"><td class="py-2 text-[11px]">งวด ${m.installment}</td><td class="text-center font-black">${m.percent}%</td><td class="text-[11px]">${m.detail || '-'}</td><td class="text-center">${window.formatDateUI(m.dueDate)}</td><td class="text-right"><button onclick="window.openLedgerModal(${m.installment})" class="text-blue-600 font-bold">+</button></td></tr>`).join('');
+            const ledger = AppData.revenueLedger.filter(l => l.ProjectID === pid).sort((a,b) => (a.installment - b.installment) || a.selection.localeCompare(b.selection));
+            document.getElementById('revenueLedgerTbody').innerHTML = ledger.map(l => `<tr class="border-b"><td>${window.formatDateUI(l.date)}</td><td class="text-center">#${l.installment}</td><td><span class="px-2 py-0.5 bg-slate-100 rounded text-[9px] font-bold uppercase">${l.selection}</span></td><td class="text-right font-black">${window.formatCurrency(l.amount)}</td><td class="text-right"><button onclick="window.removeLedgerRow('${l.id}')" class="text-red-300 ml-2">✕</button></td></tr>`).join('');
+            const cBody = document.getElementById('monthlyCostTbody');
+            const sd = new Date(window.convertExcelDate(proj.Start)), ed = new Date(window.convertExcelDate(proj.End));
+            let cur = new Date(sd.getFullYear(), sd.getMonth(), 1), rows = '';
+            while (cur <= ed) {
+                const mk = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`, dm = `${monthsNames[cur.getMonth()]}-${cur.getFullYear().toString().substr(-2)}`;
+                const d = AppData.monthlyCosts.find(c => c.ProjectID === pid && c.month === mk) || { plan: 0, actual: 0 };
+                rows += `<tr class="border-b hover:bg-slate-50/50"><td class="py-4 px-4 font-bold bg-white sticky left-0 z-10">${dm}</td><td class="py-4 px-4 text-right"><input type="text" value="${d.plan.toLocaleString()}" onblur="window.saveCostDirectFormatted('${mk}','plan',this)" class="cost-input"></td><td class="py-4 px-4 text-right"><input type="text" value="${d.actual.toLocaleString()}" onblur="window.saveCostDirectFormatted('${mk}','actual',this)" class="cost-input"></td><td class="py-4 px-4 text-right font-black ${d.actual-d.plan>0?'text-red-600':'text-emerald-600'}">${window.formatCurrency(d.actual-d.plan)}</td><td class="py-4 px-4 text-right"></td></tr>`;
+                cur.setMonth(cur.getMonth() + 1);
+            }
+            if(cBody) cBody.innerHTML = rows;
+        }
+
+        function renderFinancialAnalyticsInternal(p, pid) {
+            const sd = new Date(window.convertExcelDate(p.Start)), ed = new Date(window.convertExcelDate(p.End));
+            let cur = new Date(sd.getFullYear(), sd.getMonth(), 1), labels = [], pOut = [], aOut = [];
+            let cp = 0, ca = 0;
+            while (cur <= ed) {
+                const mk = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`, dm = `${monthsNames[cur.getMonth()]}-${cur.getFullYear().toString().substr(-2)}`;
+                const d = AppData.monthlyCosts.find(c => c.ProjectID === pid && c.month === mk) || { plan: 0, actual: 0 };
+                cp += d.plan; ca += d.actual;
+                labels.push(dm); pOut.push(cp); aOut.push(ca);
+                cur.setMonth(cur.getMonth() + 1);
+            }
+            const ctxS = document.getElementById('financialSCurveChart')?.getContext('2d'); if (ctxS) { if (financeSCurveInstance) financeSCurveInstance.destroy(); financeSCurveInstance = new Chart(ctxS, { type: 'line', data: { labels, datasets: [{ label: 'Plan', data: pOut, borderColor: '#94a3b8', borderDash: [5,5], fill: false, tension: 0.3 }, { label: 'Actual', data: aOut, borderColor: '#2563eb', borderWidth: 3, tension: 0.3 }] }, options: { responsive: true, maintainAspectRatio: false } }); }
+            const ctxM = document.getElementById('monthlyFinancialBarChart')?.getContext('2d'); if (ctxM) { if (monthlyBarInstance) monthlyBarInstance.destroy(); monthlyBarInstance = new Chart(ctxM, { type: 'bar', data: { labels, datasets: [{ label: 'Planned Exp', data: labels.map(l => { const d = AppData.monthlyCosts.find(c => c.ProjectID === pid && c.month === l); return d ? d.plan : 0; }), backgroundColor: '#94a3b8' }, { label: 'Actual Exp', data: labels.map(l => { const d = AppData.monthlyCosts.find(c => c.ProjectID === pid && c.month === l); return d ? d.actual : 0; }), backgroundColor: '#2563eb' }] }, options: { responsive: true, maintainAspectRatio: false } }); }
+        }
+
+        window.toggleRow = (id) => { const b = document.querySelector(`#row-${id} .rotate-icon`); if(!b) return; b.classList.toggle('rotated'); const tr = (pid) => { AppData.schedule.filter(t => t.parentId == pid).forEach(c => { const r = document.getElementById(`row-${c.id}`); if (r) r.classList.toggle('hidden', !b.classList.contains('rotated')); tr(c.id); }); }; tr(id); };
+        window.deleteTask = (id) => { AppData.schedule = AppData.schedule.filter(t => t.id != id && t.parentId != id); window.renderActiveProject(); };
+        window.changeSchedulePage = (p) => { AppData.scheduleCurrentPage = p; window.renderActiveProject(); };
+        window.updateM = (i, k, v) => { const a = AppData.revenueMilestones.filter(m => m.ProjectID === AppData.activeProjectID); a[i][k] = (k === 'percent' || k === 'installment') ? parseFloat(v) : v; window.updateRevenueTotal(); };
+        window.removeM = (i) => { const a = AppData.revenueMilestones.filter(m => m.ProjectID === AppData.activeProjectID); AppData.revenueMilestones = AppData.revenueMilestones.filter(m => m !== a[i]); window.renderRevenueForm(); };
+        window.saveCostDirectFormatted = (m, t, el) => { const v = window.parseNumber(el.value); let c = AppData.monthlyCosts.find(x => x.ProjectID === AppData.activeProjectID && x.month === m); if (!c) { c = { ProjectID: AppData.activeProjectID, month: m, plan: 0, actual: 0 }; AppData.monthlyCosts.push(c); } c[t] = v; window.renderActiveProject(); };
+        window.removeLedgerRow = (lid) => { AppData.revenueLedger = AppData.revenueLedger.filter(l => l.id !== lid); window.renderActiveProject(); };
+
+        // --- LIFECYCLE ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const getEl = (id) => document.getElementById(id);
+            if(getEl('projStart')) getEl('projStart').addEventListener('change', (e) => getEl('projEnd').min = e.target.value);
+            
+            getEl('newProjectForm')?.addEventListener('submit', async (e) => {
+                e.preventDefault(); const fd = new FormData(e.target);
+                AppData.projects.push({ ID: fd.get('ID'), Name: fd.get('Name'), Manager: 'Admin', Status: 'Active', SalesValue: Number(fd.get('SalesValue')), CostBudget: Number(fd.get('CostBudget')), Start: fd.get('Start'), End: fd.get('End') });
+                window.closeProjectModal(); await syncToCloud(); window.initDashboard(fd.get('ID'));
+            });
+
+            getEl('taskForm')?.addEventListener('submit', async (e) => {
+                e.preventDefault(); const fd = new FormData(e.target);
+                AppData.schedule.push({ id: Date.now().toString(), ProjectID: String(AppData.activeProjectID), parentId: fd.get('parentId') || null, level: Number(fd.get('level')), taskName: fd.get('taskName'), weight: Number(fd.get('weight')), progress: 0, start: fd.get('start'), end: fd.get('end'), remark: '', actualFinish: '' });
+                window.closeTaskModal(); await syncToCloud(); window.renderActiveProject();
+            });
+
+            getEl('ledgerForm')?.addEventListener('submit', async (e) => {
+                e.preventDefault(); const fd = new FormData(e.target);
+                AppData.revenueLedger.push({ id: Math.random().toString(36).substr(2,9), ProjectID: AppData.activeProjectID, date: fd.get('date'), installment: Number(fd.get('installment')), selection: fd.get('selection'), amount: Number(fd.get('amount')) });
+                window.closeLedgerModal(); await syncToCloud(); window.renderActiveProject();
+            });
+
+            getEl('statusForm')?.addEventListener('submit', async (e) => {
+                e.preventDefault(); const fd = new FormData(e.target), t = AppData.schedule.find(x => String(x.id) === String(fd.get('taskId')));
+                if (t) { t.progress = Number(fd.get('progress')); t.remark = fd.get('remark'); t.actualFinish = fd.get('actualFinish'); }
+                window.closeStatusModal(); await syncToCloud(); window.renderActiveProject();
+            });
+
+            getEl('excelInput')?.addEventListener('change', async (e) => {
+                const f = e.target.files[0]; if (!f) return; const wb = XLSX.read(await f.arrayBuffer());
+                AppData.projects = XLSX.utils.sheet_to_json(wb.Sheets['Projects'] || wb.Sheets[0]).map(p => ({...p, Start: window.convertExcelDate(p.Start), End: window.convertExcelDate(p.End), SalesValue: p.SalesValue || p.Sales_ContractValue, CostBudget: p.CostBudget || p.Cost_Budget}));
+                AppData.schedule = XLSX.utils.sheet_to_json(wb.Sheets['Master_Schedule'] || wb.Sheets[1]).map(t => ({...t, id: t.id || Math.random().toString(36).substr(2,9), ProjectID: String(t.ProjectID), weight: Number(t.weight || 0), progress: Number(t.progress || 0), start: window.convertExcelDate(t.start), end: window.convertExcelDate(t.end)}));
+                window.initDashboard();
+                window.showMessage("Data Imported Successfully", "success");
+            });
+
+            window.initDashboard();
+        });
+    </script>
+</body>
+</html>
