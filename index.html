@@ -883,18 +883,25 @@ hr.divider{border:none;border-top:1px solid var(--border);margin:16px 0}
 
       <!-- Client ID input -->
       <div id="gdrive-clientid-wrap" style="display:none;margin-top:16px">
-        <div class="form-group" style="margin-bottom:8px">
-          <label class="form-label">Google OAuth Client ID</label>
-          <!-- Hidden input carries the real value; masked span shown to user -->
-          <input type="hidden" id="gdrive-client-id-inp" value="1039103431882-rgjlpnji3gv0cnfdgc4v3kjq58ursp3k.apps.googleusercontent.com">
-          <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid var(--border2);border-radius:8px;background:var(--bg)">
+        <!-- Pre-configured indicator (default) -->
+        <div id="gdrive-cid-default" style="display:flex;align-items:center;justify-content:space-between">
+          <div style="display:flex;align-items:center;gap:6px">
             <svg width="13" height="13" fill="none" stroke="var(--green)" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <span style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text2);flex:1">
-              1039103•••••••••••••••••••••••••••••.apps.googleusercontent.com
-            </span>
-            <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--green-l);color:var(--green);font-weight:700">Pre-configured</span>
+            <span style="font-size:12px;color:var(--muted)">Google OAuth Client ID:</span>
+            <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text2)">Pre-configured</span>
+            <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:var(--green-l);color:var(--green);font-weight:700">✓</span>
           </div>
+          <button onclick="showClientIdInput()" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--blue);text-decoration:underline;padding:0">Get one ↗</button>
         </div>
+        <!-- Custom input (hidden until Get one clicked) -->
+        <div id="gdrive-cid-custom" style="display:none;margin-top:10px">
+          <input class="form-input" id="gdrive-client-id-inp" placeholder="xxxxxxxxxx.apps.googleusercontent.com" style="font-size:12px;font-family:'JetBrains Mono',monospace">
+          <p style="font-size:11px;color:var(--muted);line-height:1.65;margin-top:6px">
+            In <a href="https://console.cloud.google.com" target="_blank" style="color:var(--blue)">Google Cloud Console</a>: enable <strong>Google Drive API</strong>, create an OAuth 2.0 Web Client, add your domain to Authorised JS origins.
+          </p>
+        </div>
+        <!-- Hidden input carries default value -->
+        <input type="hidden" id="gdrive-client-id-val" value="1039103431882-rgjlpnji3gv0cnfdgc4v3kjq58ursp3k.apps.googleusercontent.com">
       </div>
 
       <div style="display:flex;gap:8px;margin-top:22px;justify-content:flex-end" id="gdrive-setup-btns">
@@ -3069,9 +3076,21 @@ function selectGDriveOption(c){
   document.getElementById('gdrive-clientid-wrap').style.display=c==='connect'?'block':'none';
   document.getElementById('gdrive-setup-confirm').disabled=false;
 }
+function showClientIdInput(){
+  document.getElementById('gdrive-cid-default').style.display='none';
+  document.getElementById('gdrive-cid-custom').style.display='block';
+  document.getElementById('gdrive-client-id-inp').focus();
+}
 function confirmGDriveSetup(){
   if(_gdSetupChoice==='connect'){
-    // CLIENT_ID is pre-configured; use it directly
+    // Use custom input if visible and filled, otherwise use pre-configured default
+    const customInp=document.getElementById('gdrive-client-id-inp');
+    const customVal=(customInp&&customInp.value.trim())||'';
+    const defaultVal=document.getElementById('gdrive-client-id-val')?.value||GD.CLIENT_ID;
+    const cid=customVal||defaultVal;
+    if(!cid){ toast('No Client ID configured','error'); return; }
+    GD.CLIENT_ID=cid;
+    try{ localStorage.setItem('gd_client_id',cid); } catch(e){}
     closeGDriveSetup(); gdSignIn();
   } else { closeGDriveSetup(); }
 }
